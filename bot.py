@@ -1,32 +1,33 @@
 from telegram import (
-    Update, InlineKeyboardButton, InlineKeyboardMarkup, 
+    Update, InlineKeyboardButton, InlineKeyboardMarkup,
     KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove
 )
 from telegram.ext import (
-    ApplicationBuilder, CommandHandler, MessageHandler, 
+    ApplicationBuilder, CommandHandler, MessageHandler,
     CallbackQueryHandler, ContextTypes, filters
 )
 
 # ----------------------------
-# Bot token
+# BotFather token
 # ----------------------------
-TOKEN = "8628690709:AAGXwmwnN7T4ejFjRWV-yM7R-LrAuOvhFBc"
+TOKEN = "8628690709:AAHltDWRucF-c1bOXPR6fv9ZQ2YxAVB_KMk"
 
 # ----------------------------
-# Storage for profiles and steps (in-memory)
+# In-memory storage (can later be replaced by a database)
 # ----------------------------
-profiles = {}
-steps = {}
+profiles = {}  # stores user profile info
+steps = {}     # stores user current step
+likes_count = {}  # daily likes counter
+premium_users = set()  # example premium user set
 
 # ----------------------------
-# /start command
+# Start command
 # ----------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton("Start 🔎", callback_data="setup")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
-        "🌸 Hello! Welcome to your new dating adventure! 🌸\n\n"
-        "Press Start to create your profile and meet new friends! 💖",
+        "🌸 Hi there! Welcome to MatchBot!\nLet's help you find your perfect partner ❤️",
         reply_markup=reply_markup
     )
 
@@ -44,43 +45,24 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == "setup":
         profiles[user_id] = {}
         steps[user_id] = "name"
-        await query.message.reply_text("✨ First, enter your **name**:", reply_markup=ReplyKeyboardRemove())
+        await query.message.reply_text("First, tell me your **name**:")
         return
 
     # ----------------------------
-    # Gender selection
+    # Handle gender selection
     # ----------------------------
     if query.data.startswith("gender_"):
-        gender_map = {
-            "gender_boy": "Boy",
-            "gender_girl": "Girl"
-        }
-        profiles[user_id]["gender"] = gender_map[query.data]
+        profiles[user_id]["gender"] = query.data.split("_")[1].capitalize()
         steps[user_id] = "age"
-
-        keyboard = [
-            [InlineKeyboardButton("18-25", callback_data="age_18_25")],
-            [InlineKeyboardButton("26-35", callback_data="age_26_35")],
-            [InlineKeyboardButton("36-45", callback_data="age_36_45")],
-            [InlineKeyboardButton("46+", callback_data="age_46")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.message.reply_text("Select your age range:", reply_markup=reply_markup)
+        await query.message.reply_text("Enter your age:")
         return
 
     # ----------------------------
-    # Age selection
+    # Age selection (exact number)
     # ----------------------------
-    if query.data.startswith("age_"):
-        age_map = {
-            "age_18_25": "18-25",
-            "age_26_35": "26-35",
-            "age_36_45": "36-45",
-            "age_46": "46+"
-        }
-        profiles[user_id]["age"] = age_map[query.data]
+    if steps.get(user_id) == "age" and query.data.startswith("age_"):
+        profiles[user_id]["age"] = query.data.split("_")[1]
         steps[user_id] = "description"
-
         keyboard = [
             [InlineKeyboardButton("Fun and outgoing 😄", callback_data="desc_fun")],
             [InlineKeyboardButton("Calm and thoughtful 🤔", callback_data="desc_calm")],
@@ -103,11 +85,12 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
         profiles[user_id]["description"] = desc_map[query.data]
         steps[user_id] = "photo"
-
-        # Ask for photo with skip button
-        keyboard = [[InlineKeyboardButton("Skip ⏭️", callback_data="skip_photo")]]
+        keyboard = [[InlineKeyboardButton("Skip 📷", callback_data="skip_photo")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.message.reply_text("Great! Now send your profile photo (optional, up to 4). Or skip:", reply_markup=reply_markup)
+        await query.message.reply_text(
+            "Great! You can now send up to 3 photos/videos (optional). Or skip this step:",
+            reply_markup=reply_markup
+        )
         return
 
     # ----------------------------
@@ -115,51 +98,43 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ----------------------------
     if query.data == "skip_photo":
         steps[user_id] = "location"
-
         keyboard = [[KeyboardButton("Send my location 📍", request_location=True)]]
         reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
         await query.message.reply_text("Almost done! Please share your location:", reply_markup=reply_markup)
         return
 
 # ----------------------------
-# Handle text messages (name & description)
+# Handle text messages (name, messages)
 # ----------------------------
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     text = update.message.text
 
-    if user_id in steps:
-        step = steps[user_id]
-
-        if step == "name":
-            profiles[user_id]["name"] = text
-            steps[user_id] = "gender"
-
-            keyboard = [
-                [InlineKeyboardButton("Boy 👦", callback_data="gender_boy")],
-                [InlineKeyboardButton("Girl 👧", callback_data="gender_girl")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text("Are you a Boy or Girl?", reply_markup=reply_markup)
+    if steps.get(user_id) == "name":
+        profiles[user_id]["name"] = text
+        steps[user_id] = "gender"
+        keyboard = [
+            [InlineKeyboardButton("Boy 👦", callback_data="gender_boy")],
+            [InlineKeyboardButton("Girl 👧", callback_data="gender_girl")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text("Are you a Boy or Girl?", reply_markup=reply_markup)
+        return
 
 # ----------------------------
-# Handle photos
+# Handle photo messages
 # ----------------------------
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
-
-    if user_id in steps and steps[user_id] == "photo":
-        photo_file = await update.message.photo[-1].get_file()
-        file_id = photo_file.file_id
-
-        if "photos" not in profiles[user_id]:
-            profiles[user_id]["photos"] = []
-
-        profiles[user_id]["photos"].append(file_id)
-
-        if len(profiles[user_id]["photos"]) < 4:
-            await update.message.reply_text(f"Photo added! You can send {4 - len(profiles[user_id]['photos'])} more or press skip ⏭️.")
-        else:
+    if steps.get(user_id) == "photo":
+        if "media" not in profiles[user_id]:
+            profiles[user_id]["media"] = []
+        # Limit 3 files
+        if len(profiles[user_id]["media"]) < 3:
+            file_id = update.message.photo[-1].file_id
+            profiles[user_id]["media"].append(file_id)
+            await update.message.reply_text(f"Photo saved ({len(profiles[user_id]['media'])}/3). Send more or click Skip.")
+        if len(profiles[user_id]["media"]) == 3:
             steps[user_id] = "location"
             keyboard = [[KeyboardButton("Send my location 📍", request_location=True)]]
             reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
@@ -170,47 +145,42 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ----------------------------
 async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
-    if user_id in steps and steps[user_id] == "location":
-        loc = update.message.location
-        profiles[user_id]["location"] = (loc.latitude, loc.longitude)
-        steps[user_id] = "done"
+    loc = update.message.location
+    profiles[user_id]["location"] = (loc.latitude, loc.longitude)
+    steps[user_id] = "done"
 
-        profile = profiles[user_id]
-        keyboard = [
-            [InlineKeyboardButton("View Nearby Profiles", callback_data="view")],
-            [InlineKeyboardButton("Edit My Profile", callback_data="edit")],
-            [InlineKeyboardButton("Buy Premium ✨", callback_data="premium")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
+    profile = profiles[user_id]
+    keyboard = [
+        [InlineKeyboardButton("View Nearby Profiles", callback_data="view")],
+        [InlineKeyboardButton("Edit Profile", callback_data="edit")],
+        [InlineKeyboardButton("Buy Premium ✨", callback_data="premium")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
 
-        preview_text = f"""
-Profile Preview 👤
-
-Name: {profile.get('name', '')}
-Gender: {profile.get('gender', '')}
-Age: {profile.get('age', '')}
-About: {profile.get('description', '')}
+    preview_text = f"""
+👤 Profile Preview
+Name: {profile['name']}
+Gender: {profile.get('gender', '-') }
+Age: {profile.get('age', '-') }
+About: {profile.get('description', '-') }
 Location: {profile['location'][0]}, {profile['location'][1]}
 """
-        if "photos" in profile:
-            await update.message.reply_photo(profile["photos"][0], caption=preview_text, reply_markup=reply_markup)
-        else:
-            await update.message.reply_text(preview_text, reply_markup=reply_markup)
+    # Send first photo if exists
+    if "media" in profile and profile["media"]:
+        await update.message.reply_photo(profile["media"][0], caption=preview_text, reply_markup=reply_markup)
+    else:
+        await update.message.reply_text(preview_text, reply_markup=reply_markup)
 
 # ----------------------------
-# Telegram app setup
+# Telegram bot setup
 # ----------------------------
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CallbackQueryHandler(button))
-app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_text))
 app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 app.add_handler(MessageHandler(filters.LOCATION, handle_location))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-# ----------------------------
-# Run bot
-# ----------------------------
-print("🚀 Starting bot...")  # Force log for Render
+print("🚀 Starting bot...")
 app.run_polling()
-print("❌ Bot stopped!")
