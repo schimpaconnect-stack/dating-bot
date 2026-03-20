@@ -1,4 +1,5 @@
-print("Force rebuild for Render", flush=True)from telegram import (
+print("Force rebuild for Render", flush=True)
+from telegram import (
     Update, InlineKeyboardButton, InlineKeyboardMarkup, 
     KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove
 )
